@@ -1,5 +1,6 @@
 import json
 import os
+import copy
 
 from loguru import logger as eval_logger
 from pycocoevalcap.eval import Bleu, Cider, COCOEvalCap, Meteor, Rouge, Spice
@@ -11,6 +12,7 @@ from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
 dir_name = os.path.dirname(os.path.abspath(__file__))
 
 NOCAPS_METRICS = ["Bleu_4", "Bleu_3", "Bleu_2", "Bleu_1", "METEOR", "ROUGE_L", "CIDEr"]  # , "SPICE"]
+NOCAPS_METRICS_SCORE_LIMIT = {"Bleu_4": 1.0, "Bleu_3": 1.0, "Bleu_2": 1.0, "Bleu_1": 1.0, "METEOR": 1.0, "ROUGE_L": 1.0, "CIDEr": 8.0}
 
 
 def nocaps_doc_to_visual(doc):
@@ -30,11 +32,15 @@ def nocaps_process_result(doc, result):
     Returns:
         a dictionary with key: metric name, value: metric value
     """
-    pred = result[0]
     # The question id in our dataset is the image file itself
-    image_id = doc["image_id"]
 
-    data_dict = {"answer": doc["annotations_captions"], "pred": pred, "image_id": image_id}
+    data_dict = {
+        "image_id": doc["image_id"],
+        "image_file_name": doc["image_file_name"],
+        "image_coco_url": doc["image_coco_url"],
+        "answer": doc["annotations_captions"], 
+        "pred": result[0]
+    }
 
     return {f"nocaps_{metric}": data_dict for metric in NOCAPS_METRICS}
 
@@ -43,7 +49,22 @@ def nocaps_aggregation_result(results, metric, args=None):
     scorers = [(Bleu(4), "Bleu_1"), (Bleu(4), "Bleu_2"), (Bleu(4), "Bleu_3"), (Bleu(4), "Bleu_4"), (Meteor(), "METEOR"), (Rouge(), "ROUGE_L"), (Cider(), "CIDEr")]  # , (Spice(), "SPICE")]
     scorers_dict = {s[1]: s for s in scorers}
 
+    task_name = "nocaps_val"
+    if args and args.tasks:
+        for task in args.tasks.split(","):
+            if "nocaps" in task:
+                task_name = task
+                break
+
+    screen_percent = 0
+    if args and args.tasks_screen_thres:
+        for k in args.tasks_screen_thres.keys():
+            if "nocaps" in k:
+                screen_percent = args.tasks_screen_thres[k]
+                break
+
     stored_results = []
+    screen_results = copy.deepcopy(results)
     # In order to make the coco eval tools to successfully create index
     # We need at least two dict in the dataset
     # 'annotation' and 'images'
@@ -85,6 +106,27 @@ def nocaps_aggregation_result(results, metric, args=None):
     if type(score) == list:
         n = int(metric.split("_")[-1])
         score = score[n - 1]
+        scores = scores[n - 1]
+
+    # screen good case
+    if screen_percent:
+        good_case = []
+        bad_case = []
+
+        for i, sample_score in enumerate(scores):
+            screen_results[i][f"{metric}-score"] = sample_score
+            if sample_score >= screen_percent * NOCAPS_METRICS_SCORE_LIMIT[metric]:
+                good_case.append(screen_results[i])
+            else:
+                bad_case.append(screen_results[i])
+
+        good_path = generate_submission_file(f"{task_name}-{metric}.json", args, subpath="goodcase")
+        with open(good_path, "w") as f:
+            json.dump(good_case, f, indent=4)
+
+        bad_path = generate_submission_file(f"{task_name}-{metric}.json", args, subpath="badcase")
+        with open(bad_path, "w") as f:
+            json.dump(bad_case, f, indent=4)
 
     path = generate_submission_file(f"nocaps_val_{metric}_scores.json", args)
     eval_logger.info("Storing prediction that can be submitted to the server ...")

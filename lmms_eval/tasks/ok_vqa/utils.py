@@ -12,6 +12,9 @@ from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
 from lmms_eval.tasks._task_utils.vqa_eval_metric import EvalAIAnswerProcessor
 
 
+OK_VQA_METRICS = ["exact_match"]
+
+
 def ok_vqa_doc_to_visual(doc):
     return [doc["image"].convert("RGB")]
 
@@ -38,8 +41,16 @@ def ok_vqa_process_results(doc, result):
         else:
             accuracy = 0
 
-    return {
+    data_dict = {
+        "id": doc["question_id"], 
+        "question_type": doc["question_type"], 
+        "answers": doc["answers"],
+        "pred": resAns,
         "exact_match": accuracy,
+    }
+
+    return {
+        **{f"ok_vqa_{metric}": data_dict for metric in OK_VQA_METRICS},
         "submission": {
             "image": f"{doc['question_id']}.jpg",
             "answer": resAns,
@@ -67,3 +78,50 @@ def ok_vqa_aggregate_submissions(results, args):
     with open(path, "w") as f:
         json.dump(results, f)
     print(f"Submission file saved to {path}")
+
+
+def ok_vqa_aggregation_result(results, metric, args):
+    task_name = "ok_vqa"
+    if args and args.tasks:
+        for task in args.tasks.split(","):
+            if "ok_vqa" in task:
+                task_name = task
+                break
+
+    screen_percent = 0
+    if args and args.tasks_screen_thres:
+        for k in args.tasks_screen_thres.keys():
+            if "ok_vqa" in k:
+                screen_percent = args.tasks_screen_thres[k]
+                break
+
+    match metric:
+        case "mean":
+            total = 0
+            cnt = 0
+            good_case = []
+            bad_case = []
+            for result in results:
+                total += result["exact_match"]
+                cnt += 1
+                if screen_percent:
+                    if result["exact_match"] >= screen_percent:
+                        good_case.append(result)
+                    else:
+                        bad_case.append(result)
+            if screen_percent:
+                good_path = generate_submission_file(f"{task_name}-exact_match.json", args, subpath="goodcase")
+                with open(good_path, "w") as f:
+                    json.dump(good_case, f, indent=4)
+
+                bad_path = generate_submission_file(f"{task_name}-exact_match.json", args, subpath="badcase")
+                with open(bad_path, "w") as f:
+                    json.dump(bad_case, f, indent=4)
+        case _:
+            return 0
+
+    return total / cnt if cnt else 0
+
+
+def ok_vqa_mean(results, args):
+    return ok_vqa_aggregation_result(results, "mean", args)

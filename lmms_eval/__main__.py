@@ -91,6 +91,18 @@ def parse_eval_args() -> argparse.Namespace:
         help="To get full list of tasks, use the command lmms-eval --tasks list",
     )
     parser.add_argument(
+        "--tasks_screen_thres",
+        type=json.loads,
+        default=None,
+        help=(
+            "To screen cases based on the percentage of task's metric scores when the parameter is a positive number less than one, \n"
+            "and screening cases based on the task's metric scores when the parameter is greater than or equal to one. \n"
+            "Skipping the screening when the corresponding parameter is 0. \n"
+            "Input is a dict in JSON format, \n"
+            "    E.g. `--tasks_screen_thres '{\"task1\": 0.5, \"task2\": 1, \"task3\": 0, \"task4\": 8}'`"
+        ),
+    )
+    parser.add_argument(
         "--model_args",
         default="",
         help="String arguments for model, e.g. `pretrained=EleutherAI/pythia-160m,dtype=float32`",

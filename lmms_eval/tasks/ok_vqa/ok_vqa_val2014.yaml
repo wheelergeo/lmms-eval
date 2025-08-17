@@ -1,3 +1,29 @@
 task: ok_vqa_val2014
 test_split: val2014
-include: _default_template_vqa_yaml
+dataset_path: lmms-lab/OK-VQA
+output_type: generate_until
+doc_to_visual: !function utils.ok_vqa_doc_to_visual
+doc_to_text: !function utils.ok_vqa_doc_to_text
+doc_to_target: "answer"
+generation_kwargs:
+  until:
+    - "ASSISTANT:"
+metric_list:
+  - metric: ok_vqa_exact_match
+    aggregation: !function utils.ok_vqa_mean
+    higher_is_better: true
+    ignore_case: true
+    ignore_punctuation: true
+  - metric: submission
+    aggregation: !function utils.ok_vqa_aggregate_submissions
+    higher_is_better: true
+process_results: !function utils.ok_vqa_process_results
+lmms_eval_specific_kwargs:
+  default:
+    pre_prompt: ""
+    post_prompt: "\nWhen the provided information is insufficient, respond with 'Unanswerable'.\nAnswer the question using a single word or phrase."
+  plm:
+    pre_prompt: ""
+    post_prompt: "\nRespond with one word."
+metadata:
+  - version: 0.0

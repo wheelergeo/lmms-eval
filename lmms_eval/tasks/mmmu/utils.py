@@ -3,6 +3,7 @@ import json
 import os
 import random
 import re
+import copy
 from collections import defaultdict
 from pathlib import Path
 
@@ -109,7 +110,15 @@ def mmmu_process_results(doc, results):
             parsed_pred = str(parsed_pred[0]) if parsed_pred else ""
         parsed_preds.append(parsed_pred)
     mmmu_submission = {doc["id"]: parsed_preds[0]}
-    mmmu_exact_acc = {"id": doc["id"], "subdomain": extract_subset_name(doc["id"]), "question_type": doc["question_type"], "answer": doc["answer"], "parsed_pred": parsed_preds}
+    mmmu_exact_acc = {
+        "id": doc["id"], 
+        "subdomain": extract_subset_name(doc["id"]),
+        "question_type": doc["question_type"],
+        "question": doc["question"],
+        "options": doc["options"],
+        "answer": doc["answer"],
+        "parsed_pred": parsed_preds
+    }
     return {"mmmu_acc": mmmu_exact_acc, "mmmu_acc_pass_at_k": mmmu_exact_acc, "submission": mmmu_submission}
 
 
@@ -168,15 +177,55 @@ def mmmu_test_aggregate_results_for_submission(results, args):
     eval_logger.info(f"Results saved to {path}.")
 
 
-def mmmu_aggregate_results(results):
+def mmmu_aggregate_results(results, args):
+    task_name = "mmmu"
+    if args and args.tasks:
+        for task in args.tasks.split(","):
+            if "mmmu" in task:
+                task_name = task
+                break
+
+    screen_percent = 0
+    if args and args.tasks_screen_thres:
+        for k in args.tasks_screen_thres.keys():
+            if "mmmu" in k:
+                screen_percent = args.tasks_screen_thres[k]
+                break
+
     evaluation_result = {}
     subset_to_eval_samples = defaultdict(list)
     for result in results:
         subset_to_eval_samples[result["subdomain"]].append(result)
+
+    screen_results = copy.deepcopy(subset_to_eval_samples)
+    good_case = defaultdict(list)
+    bad_case = defaultdict(list)
     for subset, sub_eval_samples in subset_to_eval_samples.items():
         judge_dict, metric_dict = evaluate_mmmu(sub_eval_samples)
         metric_dict.update({"num_example": len(sub_eval_samples)})
         evaluation_result[subset] = metric_dict
+
+        # screen good case
+        if screen_percent:
+            for i, (sample_id, judge) in enumerate(judge_dict.items()):
+                if judge == "Correct":
+                    screen_results[subset][i]["score"] = 1.0  
+                else:
+                    screen_results[subset][i]["score"] = 0.0
+
+                if screen_results[subset][i]["score"] >= screen_percent:
+                    good_case[subset].append(screen_results[subset][i])
+                else:
+                    bad_case[subset].append(screen_results[subset][i])
+
+            good_path = generate_submission_file(f"{task_name}-{subset}.json", args, subpath="goodcase")
+            with open(good_path, "w") as f:
+                json.dump(good_case[subset], f, indent=4)
+
+            bad_path = generate_submission_file(f"{task_name}-{subset}.json", args, subpath="badcase")
+            with open(bad_path, "w") as f:
+                json.dump(bad_case[subset], f, indent=4)
+
     printable_results = {}
     for domain, in_domain_cats in DOMAIN_CAT2SUB_CAT.items():
         in_domain_cat_results = {}

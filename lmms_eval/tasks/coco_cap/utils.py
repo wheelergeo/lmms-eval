@@ -1,5 +1,6 @@
 import json
 import os
+import copy
 from io import BytesIO
 
 import requests
@@ -14,6 +15,7 @@ from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
 dir_name = os.path.dirname(os.path.abspath(__file__))
 
 COCO_METRICS = ["Bleu_4", "Bleu_3", "Bleu_2", "Bleu_1", "METEOR", "ROUGE_L", "CIDEr"]  # , "SPICE"]
+COCO_METRICS_SCORE_LIMIT = {"Bleu_4": 1.0, "Bleu_3": 1.0, "Bleu_2": 1.0, "Bleu_1": 1.0, "METEOR": 1.0, "ROUGE_L": 1.0, "CIDEr": 8.0}
 
 
 def coco_doc_to_visual(doc):
@@ -62,9 +64,8 @@ def coco_process_result(doc, result):
     question_id = doc["question_id"]
     # The question id in our dataset is the image file itself
     image_id = int(question_id.split("_")[-1].split(".")[0])
-    id = doc["id"]
-
-    data_dict = {"answer": doc["answer"], "pred": pred, "image_id": image_id, "id": id}
+    
+    data_dict = {"id": doc["id"], "question": doc["question"], "answer": doc["answer"], "pred": pred, "image_id": image_id}
 
     return {f"coco_{metric}": data_dict for metric in COCO_METRICS}
 
@@ -73,7 +74,22 @@ def coco_aggregation_result(results, metric, args):
     scorers = [(Bleu(4), "Bleu_1"), (Bleu(4), "Bleu_2"), (Bleu(4), "Bleu_3"), (Bleu(4), "Bleu_4"), (Meteor(), "METEOR"), (Rouge(), "ROUGE_L"), (Cider(), "CIDEr")]  # , (Spice(), "SPICE")]
     scorers_dict = {s[1]: s for s in scorers}
 
+    task_name = "coco_captions"
+    if args and args.tasks:
+        for task in args.tasks.split(","):
+            if "coco" in task:
+                task_name = task
+                break
+
+    screen_percent = 0
+    if args and args.tasks_screen_thres:
+        for k in args.tasks_screen_thres.keys():
+            if "coco" in k:
+                screen_percent = args.tasks_screen_thres[k]
+                break
+        
     stored_results = []
+    screen_results = copy.deepcopy(results)
     # In order to make the coco eval tools to successfully create index
     # We need at least two dict in the dataset
     # 'annotation' and 'images'
@@ -115,6 +131,27 @@ def coco_aggregation_result(results, metric, args):
     if type(score) == list:
         n = int(metric.split("_")[-1])
         score = score[n - 1]
+        scores = scores[n - 1]
+
+    # screen good case
+    if screen_percent:
+        good_case = []
+        bad_case = []
+
+        for i, sample_score in enumerate(scores):
+            screen_results[i][f"{metric}-score"] = sample_score
+            if sample_score >= screen_percent * COCO_METRICS_SCORE_LIMIT[metric]:
+                good_case.append(screen_results[i])
+            else:
+                bad_case.append(screen_results[i])
+
+        good_path = generate_submission_file(f"{task_name}-{metric}.json", args, subpath="goodcase")
+        with open(good_path, "w") as f:
+            json.dump(good_case, f, indent=4)
+
+        bad_path = generate_submission_file(f"{task_name}-{metric}.json", args, subpath="badcase")
+        with open(bad_path, "w") as f:
+            json.dump(bad_case, f, indent=4)
 
     path = generate_submission_file("coco_captions_val2014_alg_results.json", args)
     if not os.path.exists(path):

@@ -14,9 +14,10 @@ generation_kwargs:
   top_p: 1.0
   num_beams: 1
   do_sample: false
+process_results: !function utils.gqa_process_result
 metric_list:
-  - metric: exact_match
-    aggregation: mean
+  - metric: gqa_exact_match
+    aggregation: !function utils.gqa_mean
     higher_is_better: true
     ignore_case: true
     ignore_punctuation: true

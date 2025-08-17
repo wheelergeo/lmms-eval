@@ -2,7 +2,7 @@ dataset_path: lmms-lab/NoCaps
 dataset_kwargs:
   token: True
 task: "nocaps_val"
-group : "nocaps_caption"
+tag : "nocaps_caption"
 test_split: validation
 output_type: generate_until
 doc_to_visual: !function utils.nocaps_doc_to_visual

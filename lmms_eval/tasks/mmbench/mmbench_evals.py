@@ -299,6 +299,7 @@ class MMBench_Evaluator:
             # if (i + 1) % 100 == 0:
             #     eval_logger.info(f"Evaluating: {i + 1}/{lt}, Acc: {hit / tot * 100: .2f}%. ")
 
+        results[:] = data_main.to_dict(orient="records")
         indices = data_main["index"]
         data_main = data_main.set_index("index")
         data_main["category"] = [cate_map[i] if not math.isnan(i) else "uncategorized" for i in indices]

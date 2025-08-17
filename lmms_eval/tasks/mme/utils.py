@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import copy
 from collections import defaultdict
 
 from loguru import logger as eval_logger
@@ -91,24 +92,70 @@ def mme_process_results(doc, results):
     key_name = "mme_perception_score" if category in eval_type_dict["Perception"] else "mme_cognition_score"
     # Note: the key name here is very important. It decides which aggregation function will receive the results
     # We note down the question id/category to help us aggregate the results later
-    return {key_name: {"question_id": doc["question_id"], "category": category, "score": score}}
+    return {
+        key_name: {
+            "question_id": doc["question_id"],
+            "question": doc["question"],
+            "answer": doc["answer"],
+            "category": category,
+            "score": score
+        }
+    }
 
 
-def mme_aggregate_results(results):
+def mme_aggregate_results(results, args):
     """
     Args:
         results: a list of values returned by process_results
     Returns:
         A score
     """
+    task_name = "mme"
+    if args and args.tasks:
+        for task in args.tasks.split(","):
+            if "mme" in task:
+                task_name = task
+                break
+
+    screen_percent = 0
+    if args and args.tasks_screen_thres:
+        for k in args.tasks_screen_thres.keys():
+            if "mme" in k:
+                screen_percent = args.tasks_screen_thres[k]
+                break
+
     category2score = defaultdict(dict)
-    for result in results:
+    screen_results = copy.deepcopy(results)
+    good_case = defaultdict(list)
+    bad_case = defaultdict(list)
+    categories = []
+    for i, result in enumerate(results):
         question_id = result["question_id"]
         score = result["score"]
         category = result["category"]
         if question_id not in category2score[category]:
             category2score[category][question_id] = []
         category2score[category][question_id].append(score)
+
+        if screen_percent:
+            if category not in categories:
+                categories.append(category)
+            if score >= screen_percent:
+                good_case[category].append(screen_results[i])
+            else:
+                bad_case[category].append(screen_results[i])
+
+    # screen good case
+    if screen_percent:
+        for category in categories:
+            good_path = generate_submission_file(f"{task_name}-{category}.json", args, subpath="goodcase")
+            with open(good_path, "w") as f:
+                json.dump(good_case[category], f, indent=4)
+
+            bad_path = generate_submission_file(f"{task_name}-{category}.json", args, subpath="badcase")
+            with open(bad_path, "w") as f:
+                json.dump(bad_case[category], f, indent=4)
+
     category2avg_score = {}
     for category, question2scores in category2score.items():
         total_score = 0

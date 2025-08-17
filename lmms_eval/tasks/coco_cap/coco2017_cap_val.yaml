@@ -1,7 +1,7 @@
 dataset_path: lmms-lab/COCO-Caption2017
 dataset_kwargs:
   token: True
-task: "coco2017_cap_val"
+tag: "coco2017_cap_val"
 group : "coco_caption2017"
 test_split: val
 output_type: generate_until

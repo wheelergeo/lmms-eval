@@ -1,4 +1,10 @@
 # Add the following functions to your existing utils.py file
+import json
+
+from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
+
+
+POPE_METRICS = ["accuracy", "precision", "recall", "f1_score", "yes_ratio"]
 
 
 def pope_doc_to_visual(doc):
@@ -19,19 +25,55 @@ def pope_process_results(doc, results):
     gt_ans = doc["answer"].lower().strip()
     assert gt_ans in ["yes", "no"]
     score = 1.0 if pred == gt_ans else 0.0
-    return {
-        "pope_accuracy": {"question_id": doc["question_id"], "score": score, "prediction": pred, "ground_truth": gt_ans},
-        "pope_precision": {"question_id": doc["question_id"], "score": score, "prediction": pred, "ground_truth": gt_ans},
-        "pope_recall": {"question_id": doc["question_id"], "score": score, "prediction": pred, "ground_truth": gt_ans},
-        "pope_f1_score": {"question_id": doc["question_id"], "score": score, "prediction": pred, "ground_truth": gt_ans},
-        "pope_yes_ratio": {"question_id": doc["question_id"], "score": score, "prediction": pred, "ground_truth": gt_ans},
+
+    data_dict = {
+        "question_id": doc["question_id"],
+        "question": doc["question"],
+        "category": doc["category"],
+        "answer": gt_ans,
+        "exact_match": score,
+        "prediction": pred
     }
 
+    return {f"pope_{metric}": data_dict for metric in POPE_METRICS}
 
-def pope_aggregate_accuracy(results):
+def pope_aggregate_accuracy(results, args):
+    task_name = "pope"
+    if args and args.tasks:
+        for task in args.tasks.split(","):
+            if "pope" in task:
+                task_name = task
+                break
+
+    screen_percent = 0
+    if args and args.tasks_screen_thres:
+        for k in args.tasks_screen_thres.keys():
+            if "pope" in k:
+                screen_percent = args.tasks_screen_thres[k]
+                break
+
     total_score = 0
+    good_case = []
+    bad_case = []
     for result in results:
-        total_score += result["score"]
+        total_score += result["exact_match"]
+
+        if screen_percent:
+            if result["exact_match"] >= screen_percent:
+                good_case.append(result)
+            else:
+                bad_case.append(result)
+
+    # screen good case
+    if screen_percent:
+        good_path = generate_submission_file(f"{task_name}-exact_match.json", args, subpath="goodcase")
+        with open(good_path, "w") as f:
+            json.dump(good_case, f, indent=4)
+
+        bad_path = generate_submission_file(f"{task_name}-exact_match.json", args, subpath="badcase")
+        with open(bad_path, "w") as f:
+            json.dump(bad_case, f, indent=4)
+
     avg_score = total_score / len(results)
     return avg_score
 
@@ -41,7 +83,7 @@ def pope_aggregate_precision(results):
     false_positives = 0
     for result in results:
         pred = result["prediction"]
-        gt = result["ground_truth"]
+        gt = result["answer"]
         if gt == "yes" and pred == "yes":
             true_positives += 1
         elif gt == "no" and pred == "yes":
@@ -55,7 +97,7 @@ def pope_aggregate_recall(results):
     false_negatives = 0
     for result in results:
         pred = result["prediction"]
-        gt = result["ground_truth"]
+        gt = result["answer"]
         if gt == "yes" and pred == "yes":
             true_positives += 1
         elif gt == "yes" and pred == "no":
@@ -75,7 +117,7 @@ def pope_aggregate_yes_ratio(results):
     yes_count = 0
     no_count = 0
     for result in results:
-        gt = result["ground_truth"]
+        gt = result["answer"]
         if gt == "yes":
             yes_count += 1
         elif gt == "no":

@@ -1,5 +1,6 @@
 import json
 import os
+import copy
 from pathlib import Path
 
 import pandas as pd
@@ -72,9 +73,9 @@ def mmbench_process_results(doc, results):
         "gpt_eval_score": {
             "index": doc["index"],
             "question": doc["question"],
+            "hint": doc["hint"],
             "answer": doc["answer"],
             "prediction": model_response,
-            "hint": doc["hint"],
             "source": doc["source"],
             "split": doc["split"],
             "category": doc["category"],
@@ -101,7 +102,42 @@ def mmbench_process_results(doc, results):
 
 def mmbench_aggregate_dev_results_eval(results, args):
     print(f"============= MMBench-EN(Dev) Detailed Results =============")
-    overall_acc, category_acc, l2_category_acc = mmbench_evaluator.eval_result(results, eval_method="openai")
+    task_name = "mmbench"
+    if args and args.tasks:
+        for task in args.tasks.split(","):
+            if "mmbench" in task:
+                task_name = task
+                break
+
+    screen_percent = 0
+    if args and args.tasks_screen_thres:
+        for k in args.tasks_screen_thres.keys():
+            if "mmbench" in k:
+                screen_percent = args.tasks_screen_thres[k]
+                break
+
+    screen_results = copy.deepcopy(results)
+    overall_acc, category_acc, l2_category_acc = mmbench_evaluator.eval_result(screen_results, eval_method="openai")
+    
+    # screen good case
+    if screen_percent:
+        good_case = []
+        bad_case = []
+
+        for result in screen_results:
+            if result["hit"] >= screen_percent:
+                good_case.append(result)
+            else:
+                bad_case.append(result)
+
+        good_path = generate_submission_file(f"{task_name}-exact_match.json", args, subpath="goodcase")
+        with open(good_path, "w") as f:
+            json.dump(good_case, f, indent=4)
+
+        bad_path = generate_submission_file(f"{task_name}-exact_match.json", args, subpath="badcase")
+        with open(bad_path, "w") as f:
+            json.dump(bad_case, f, indent=4)
+    
     file = generate_submission_file("mmbench_en_dev_results.json", args)
     details_info = {
         "overall_acc": overall_acc,
