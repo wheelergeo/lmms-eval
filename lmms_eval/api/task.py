@@ -438,7 +438,9 @@ class Task(abc.ABC):
         num_docs = sum(1 for _ in doc_iterator_for_counting)
 
         for doc_id, doc in tqdm(
-            doc_id_docs,
+            iterable=doc_id_docs,
+            desc="Input Context Building",
+            disable=(rank != 0),
             total=num_docs,
         ):
             # sample fewshot context #TODO: need to offset doc_id by rank now!
